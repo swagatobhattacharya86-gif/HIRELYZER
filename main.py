@@ -18771,8 +18771,6 @@ Generate {num_questions} questions now:
                         st.session_state.resume_context = resume_context
 
                         st.success("✅ Resume uploaded and analyzed successfully!")
-                        
-                        time.sleep(1)
                         st.rerun()
                     else:
                         st.error("Could not extract text from resume. Please ensure it's a valid PDF.")
@@ -19148,7 +19146,6 @@ Generate {num_questions} questions now:
                                 show_resume_scanning_animation()
 
                             st.success("Questions generated! Starting your mock interview...")
-                            time.sleep(1)
                             st.rerun()
                         else:
                             st.error("Failed to generate questions. Please try again.")
@@ -19187,26 +19184,72 @@ Generate {num_questions} questions now:
                     if st.session_state.question_timer_start is None:
                         st.session_state.question_timer_start = time.time()
 
-                    # Calculate remaining time
+                    # Calculate remaining time for server-side auto-submit check only
                     elapsed_time = time.time() - st.session_state.question_timer_start
                     remaining_time = max(0, st.session_state.timer_seconds - elapsed_time)
 
-                    # Display timer
-                    timer_minutes = int(remaining_time // 60)
-                    timer_seconds_display = int(remaining_time % 60)
-                    timer_urgent_class = "timer-urgent" if remaining_time <= 30 else ""
-
-                    st.markdown(f"""
-                    <div class="timer-container">
-                        <div class="timer-display {timer_urgent_class}">
-                            ⏰ Time Remaining: {timer_minutes:02d}:{timer_seconds_display:02d}
-                        </div>
+                    # ── CLIENT-SIDE JS TIMER (zero blink / zero rerun) ──────────────────
+                    # The countdown runs entirely in the browser — no Streamlit reruns.
+                    # When it reaches 0 it shows "TIME'S UP!" in red.
+                    # The server auto-submit check below catches expiry on next user action.
+                    _timer_js_seconds = int(remaining_time)
+                    import streamlit.components.v1 as _components
+                    _components.html(f"""
+                    <style>
+                      #t4-timer-wrap {{
+                        background: linear-gradient(135deg,rgba(251,191,36,0.08),rgba(251,191,36,0.04));
+                        border: 1px solid rgba(251,191,36,0.25);
+                        border-radius: 14px; padding: 14px 20px;
+                        margin: 0; text-align: center;
+                        font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;
+                      }}
+                      #t4-timer-label {{
+                        font-size: 1.35rem; font-weight: 700;
+                        color: #fbbf24; letter-spacing: -0.01em;
+                      }}
+                      #t4-timer-label.urgent {{ color: #fb7185; animation: t4pulse 1s ease-in-out infinite; }}
+                      @keyframes t4pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:0.75}} }}
+                      #t4-prog-outer {{
+                        height: 5px; background: rgba(255,255,255,0.08);
+                        border-radius: 99px; margin-top: 10px; overflow: hidden;
+                      }}
+                      #t4-prog-inner {{
+                        height: 100%; border-radius: 99px;
+                        background: linear-gradient(90deg,#fbbf24,#f59e0b);
+                        transition: width 1s linear;
+                      }}
+                    </style>
+                    <div id="t4-timer-wrap">
+                      <div id="t4-timer-label">⏰ Time Remaining: <span id="t4-time">{_timer_js_seconds // 60:02d}:{_timer_js_seconds % 60:02d}</span></div>
+                      <div id="t4-prog-outer"><div id="t4-prog-inner" style="width:{min(100, int(remaining_time / max(1, st.session_state.timer_seconds) * 100))}%"></div></div>
                     </div>
-                    """, unsafe_allow_html=True)
-
-                    # Timer progress bar
-                    progress_value = (st.session_state.timer_seconds - remaining_time) / st.session_state.timer_seconds
-                    st.progress(progress_value)
+                    <script>
+                      (function() {{
+                        var secs = {_timer_js_seconds};
+                        var total = {st.session_state.timer_seconds};
+                        var lbl = document.getElementById("t4-time");
+                        var wrap = document.getElementById("t4-timer-label");
+                        var prog = document.getElementById("t4-prog-inner");
+                        if (!lbl) return;
+                        var iv = setInterval(function() {{
+                          secs--;
+                          if (secs <= 0) {{
+                            clearInterval(iv);
+                            lbl.textContent = "00:00";
+                            wrap.classList.add("urgent");
+                            prog.style.width = "0%";
+                            return;
+                          }}
+                          var m = Math.floor(secs / 60);
+                          var s = secs % 60;
+                          lbl.textContent = (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+                          prog.style.width = Math.max(0, (secs / total) * 100) + "%";
+                          if (secs <= 30) wrap.classList.add("urgent");
+                        }}, 1000);
+                      }})();
+                    </script>
+                    """, height=80, scrolling=False)
+                    # ── END CLIENT-SIDE TIMER ───────────────────────────────────────────
 
                     # Question display with phase indicator
                     phase_badge = "📄 Resume-Based Question" if current_index <= num_resume_qs else "💼 Generic Interview Question"
@@ -19485,10 +19528,11 @@ Generate {num_questions} questions now:
                                     if i < num_to_show - 1:  # Don't add separator after last item
                                         st.markdown("---")
 
-                    # Auto-refresh for timer
-                    if remaining_time > 0 and not st.session_state.dynamic_answer_submitted:
-                        time.sleep(1)
-                        st.rerun()
+                    # AUTO-REFRESH REMOVED: Timer now runs client-side in JS.
+                    # No more time.sleep(1) + st.rerun() every second.
+                    # This eliminates the blink/glitch entirely.
+                    # The server-side remaining_time check above handles auto-submit
+                    # when the user next interacts with the page after expiry.
                 else:
                     # CRITICAL FIX: All questions answered, move to completion automatically
                     # Capture exact duration at auto-completion moment
@@ -19499,7 +19543,6 @@ Generate {num_questions} questions now:
                     st.session_state.interview_result_saved = False
                     st.session_state.dynamic_interview_completed = True
                     st.success(f"✅ Completed all {st.session_state.original_num_questions} questions!")
-                    time.sleep(1)
                     st.rerun()
             
             # UNIFIED: Interview completed + Course Recommendations + DB + PDF
