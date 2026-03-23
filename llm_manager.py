@@ -122,24 +122,10 @@ init_db()
 
 
 # ── Cache cleanup ─────────────────────────────────────────────────────────────
-_last_cleanup: datetime | None = None
-CLEANUP_INTERVAL_MINUTES = 60  # run at most once per hour, not on every LLM call
-
 def cleanup_cache():
-    """Delete expired cache rows and permanently dead keys.
-    Throttled — runs at most once per CLEANUP_INTERVAL_MINUTES to avoid
-    hammering Supabase on every single call_llm() invocation.
-    """
-    global _last_cleanup
-    now = get_utc_now()
-    if _last_cleanup is not None:
-        elapsed = (now - _last_cleanup).total_seconds()
-        if elapsed < CLEANUP_INTERVAL_MINUTES * 60:
-            return  # skip — too soon
-    _last_cleanup = now
-
-    cutoff_cache = now - timedelta(hours=CACHE_EXPIRY_HOURS)
-    cutoff_dead  = now - timedelta(days=DEAD_KEY_REMOVE_DAYS)
+    """Delete expired cache rows and permanently dead keys."""
+    cutoff_cache = get_utc_now() - timedelta(hours=CACHE_EXPIRY_HOURS)
+    cutoff_dead  = get_utc_now() - timedelta(days=DEAD_KEY_REMOVE_DAYS)
 
     _execute(
         "DELETE FROM llm_cache WHERE timestamp < %s",
@@ -334,25 +320,14 @@ def call_llm(
     temperature: float = 0,
 ) -> str:
     """
-    1. Check in-session memory cache (zero DB hits for repeated prompts in same session).
-    2. Check Supabase cache — return immediately on hit.
-    3. Try user-provided Groq key (if set).
-    4. Rotate through healthy admin keys.
-    Raises RuntimeError if all keys are exhausted — callers must handle this.
+    1. Check Supabase cache — return immediately on hit.
+    2. Try user-provided Groq key (if set).
+    3. Rotate through healthy admin keys.
     """
-    # Step 0 — throttled cleanup (at most once per hour)
+    # Step 1 — cache
     cleanup_cache()
-
-    # Step 1a — in-session memory cache (avoids repeat Supabase + Groq calls
-    # when the same prompt fires multiple times in one Streamlit session due to reruns)
-    _session_cache_key = f"_llm_cache_{hash_prompt(prompt, model)}"
-    if _session_cache_key in session:
-        return session[_session_cache_key]
-
-    # Step 1b — Supabase persistent cache
     cached = get_cached_response(prompt, model)
     if cached:
-        session[_session_cache_key] = cached  # warm the session cache too
         return cached
 
     if "key_index" not in session:
@@ -371,7 +346,6 @@ def call_llm(
             response = try_call_llm(prompt, user_key, model, temperature)
             set_cached_response(prompt, model, response)
             increment_key_usage(user_key)
-            session[_session_cache_key] = response
             return response
         except Exception as e:
             reason = (
@@ -395,7 +369,6 @@ def call_llm(
                 increment_key_usage(key)
                 clear_key_failure(key)
                 session["key_index"] = (idx + 1) % len(admin_keys)
-                session[_session_cache_key] = response
                 return response
             except Exception as e:
                 reason = (
@@ -406,7 +379,4 @@ def call_llm(
                 mark_key_failure(key, reason)
                 last_error = e
 
-    # ── All keys exhausted — raise so callers show a clean error, not a crash ──
-    raise RuntimeError(
-        f"All Groq API keys exhausted or in cooldown. Last error: {last_error or 'No healthy API keys available'}"
-    )
+    return f"❌ LLM unavailable: {last_error or 'No healthy API keys available'}"
