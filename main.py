@@ -19184,111 +19184,33 @@ Generate {num_questions} questions now:
                     if st.session_state.question_timer_start is None:
                         st.session_state.question_timer_start = time.time()
 
-                    # Calculate remaining time for server-side auto-submit check only
+                    # Calculate remaining time
                     elapsed_time = time.time() - st.session_state.question_timer_start
                     remaining_time = max(0, st.session_state.timer_seconds - elapsed_time)
 
-                    # ── CLIENT-SIDE JS TIMER + AUTO-SUBMIT BRIDGE ───────────────────────
-                    # Timer runs in the browser (no reruns = no blink).
-                    # When it hits 0, JS clicks a hidden Streamlit button via DOM traversal,
-                    # which triggers a rerun and fires the server-side auto-submit below.
-                    _timer_js_seconds = int(remaining_time)
-                    import streamlit.components.v1 as _components
+                    # Display timer using st.fragment so ONLY the clock reruns every second
+                    # — the rest of the page (question text, textarea, buttons) stays stable.
+                    @st.fragment(run_every=1)
+                    def _timer_widget():
+                        _elapsed = time.time() - st.session_state.question_timer_start
+                        _remaining = max(0, st.session_state.timer_seconds - _elapsed)
+                        _mins = int(_remaining // 60)
+                        _secs = int(_remaining % 60)
+                        _urgent = "timer-urgent" if _remaining <= 30 else ""
+                        st.markdown(f"""
+                        <div class="timer-container">
+                            <div class="timer-display {_urgent}">
+                                ⏰ Time Remaining: {_mins:02d}:{_secs:02d}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        _progress = (_elapsed) / st.session_state.timer_seconds
+                        st.progress(min(_progress, 1.0))
+                        # Stop auto-tick once submitted or expired
+                        if _remaining <= 0 or st.session_state.get('dynamic_answer_submitted'):
+                            st.rerun()   # one final full rerun to trigger auto-submit logic
 
-                    # Hidden auto-submit trigger button — JS clicks this when timer expires
-                    _auto_submit_clicked = st.button(
-                        "⏰ Auto-submit (timer expired)",
-                        key="timer_expired_trigger",
-                        help="Triggered automatically when timer reaches 0",
-                    )
-                    # Hide the button visually — it only exists to receive JS clicks
-                    st.markdown("""
-                    <style>
-                      [data-testid="stButton"] button[kind="secondary"]:has(+ *),
-                      div[data-testid="stButton"]:has(button[title="Triggered automatically when timer reaches 0"]) {
-                        display: none !important;
-                      }
-                    </style>
-                    """, unsafe_allow_html=True)
-
-                    _components.html(f"""
-                    <style>
-                      #t4-timer-wrap {{
-                        background: linear-gradient(135deg,rgba(251,191,36,0.08),rgba(251,191,36,0.04));
-                        border: 1px solid rgba(251,191,36,0.25);
-                        border-radius: 14px; padding: 14px 20px;
-                        margin: 0; text-align: center;
-                        font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;
-                      }}
-                      #t4-timer-label {{
-                        font-size: 1.35rem; font-weight: 700;
-                        color: #fbbf24; letter-spacing: -0.01em;
-                      }}
-                      #t4-timer-label.urgent {{ color: #fb7185; animation: t4pulse 1s ease-in-out infinite; }}
-                      @keyframes t4pulse {{ 0%,100%{{opacity:1}} 50%{{opacity:0.75}} }}
-                      #t4-prog-outer {{
-                        height: 5px; background: rgba(255,255,255,0.08);
-                        border-radius: 99px; margin-top: 10px; overflow: hidden;
-                      }}
-                      #t4-prog-inner {{
-                        height: 100%; border-radius: 99px;
-                        background: linear-gradient(90deg,#fbbf24,#f59e0b);
-                        transition: width 1s linear;
-                      }}
-                    </style>
-                    <div id="t4-timer-wrap">
-                      <div id="t4-timer-label">⏰ Time Remaining: <span id="t4-time">{_timer_js_seconds // 60:02d}:{_timer_js_seconds % 60:02d}</span></div>
-                      <div id="t4-prog-outer"><div id="t4-prog-inner" style="width:{min(100, int(remaining_time / max(1, st.session_state.timer_seconds) * 100))}%"></div></div>
-                    </div>
-                    <script>
-                      (function() {{
-                        var secs = {_timer_js_seconds};
-                        var total = {st.session_state.timer_seconds};
-                        var lbl  = document.getElementById("t4-time");
-                        var wrap = document.getElementById("t4-timer-label");
-                        var prog = document.getElementById("t4-prog-inner");
-                        if (!lbl || secs <= 0) return;
-
-                        var iv = setInterval(function() {{
-                          secs--;
-                          if (secs <= 30) wrap.classList.add("urgent");
-                          if (secs <= 0) {{
-                            clearInterval(iv);
-                            lbl.textContent = "00:00";
-                            prog.style.width = "0%";
-                            // ── Bridge: click the hidden Streamlit auto-submit button ──
-                            // Walk up to the top-level Streamlit iframe, find the button
-                            // by its title attribute, and click it to trigger a rerun.
-                            try {{
-                              var root = window.parent.document;
-                              var btns = root.querySelectorAll("button");
-                              for (var i = 0; i < btns.length; i++) {{
-                                if (btns[i].title === "Triggered automatically when timer reaches 0") {{
-                                  btns[i].click();
-                                  break;
-                                }}
-                              }}
-                            }} catch(e) {{
-                              // Cross-origin fallback: post a message to the parent window
-                              try {{ window.parent.postMessage({{type:"t4_timer_expired"}}, "*"); }} catch(e2) {{}}
-                            }}
-                            return;
-                          }}
-                          var m = Math.floor(secs / 60);
-                          var s = secs % 60;
-                          lbl.textContent = (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-                          prog.style.width = Math.max(0, (secs / total) * 100) + "%";
-                        }}, 1000);
-                      }})();
-                    </script>
-                    """, height=80, scrolling=False)
-                    # ── END CLIENT-SIDE TIMER ───────────────────────────────────────────
-
-                    # If JS bridge clicked the hidden button OR remaining_time already 0
-                    # on this rerun → treat as timer expiry
-                    if _auto_submit_clicked:
-                        # Force remaining_time to 0 so the auto-submit block fires
-                        remaining_time = 0
+                    _timer_widget()
 
                     # Question display with phase indicator
                     phase_badge = "📄 Resume-Based Question" if current_index <= num_resume_qs else "💼 Generic Interview Question"
@@ -19445,7 +19367,7 @@ Generate {num_questions} questions now:
                         st.warning("⏰ Time's up! Answer auto-submitted.")
                         st.rerun()
 
-                    # Submit answer button — hide once timer expired or answer submitted
+                    # Submit answer button
                     if not st.session_state.dynamic_answer_submitted and remaining_time > 0:
                         if st.button("Submit Answer & Get Feedback"):
                             if answer.strip():
@@ -19567,11 +19489,8 @@ Generate {num_questions} questions now:
                                     if i < num_to_show - 1:  # Don't add separator after last item
                                         st.markdown("---")
 
-                    # AUTO-REFRESH REMOVED: Timer now runs client-side in JS.
-                    # No more time.sleep(1) + st.rerun() every second.
-                    # This eliminates the blink/glitch entirely.
-                    # The server-side remaining_time check above handles auto-submit
-                    # when the user next interacts with the page after expiry.
+                    # Timer auto-refresh is now handled inside _timer_widget (st.fragment above).
+                    # No sleep/rerun needed here — removing it eliminates the full-page blink.
                 else:
                     # CRITICAL FIX: All questions answered, move to completion automatically
                     # Capture exact duration at auto-completion moment
