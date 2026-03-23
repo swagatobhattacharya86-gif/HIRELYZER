@@ -19206,9 +19206,11 @@ Generate {num_questions} questions now:
                         """, unsafe_allow_html=True)
                         _progress = (_elapsed) / st.session_state.timer_seconds
                         st.progress(min(_progress, 1.0))
-                        # Stop auto-tick once submitted or expired
+                        # When timer expires or answer submitted: trigger a FULL app rerun
+                        # scope="app" is required — plain st.rerun() inside a fragment
+                        # only reruns the fragment itself, so auto-submit never fires.
                         if _remaining <= 0 or st.session_state.get('dynamic_answer_submitted'):
-                            st.rerun()   # one final full rerun to trigger auto-submit logic
+                            st.rerun(scope="app")
 
                     _timer_widget()
 
