@@ -251,6 +251,9 @@ LENGTH: 3 short-to-medium paragraphs. Maximum 350 words.
         with st.spinner("✉️ Generating cover letter..."):
             try:
                 cover_letter = call_llm(prompt, session=st.session_state).strip()
+            except RuntimeError as e:
+                st.error(f"⚠️ API keys exhausted — please try again later or add your own Groq key in Settings. ({e})")
+                return
             except Exception as e:
                 st.error(f"❌ Failed to generate cover letter: {e}")
                 return
@@ -3818,7 +3821,10 @@ RESUME TEXT:
 \"\"\"{text}\"\"\"
 """
 
-    raw_response = call_llm(prompt, session=st.session_state)
+    try:
+        raw_response = call_llm(prompt, session=st.session_state)
+    except RuntimeError as e:
+        raise RuntimeError(f"⚠️ API keys exhausted during resume rewrite. Try again later or add your Groq key in Settings.\n{e}")
 
     # ── Parse the two sections out of the combined response ──────────────
     rewritten_text = ""
@@ -5471,7 +5477,11 @@ Suggestions:
 ---
 """
 
-    response = call_llm(grammar_prompt, session=st.session_state).strip()
+    try:
+        response = call_llm(grammar_prompt, session=st.session_state).strip()
+    except RuntimeError:
+        # Keys exhausted — return a safe default so analysis can continue
+        return max(0, min(max_score, max_score - 2)), "Language quality could not be evaluated (API unavailable).", []
     score_match = re.search(r"Score:\s*(\d+)", response)
     feedback_match = re.search(r"Feedback:\s*(.+)", response)
     suggestions = re.findall(r"- (.+)", response)
@@ -5794,7 +5804,10 @@ SCORING SCALE for language ({lang_weight} pts max):
 """
    
    
-    ats_result = call_llm(prompt, session=st.session_state).strip()
+    try:
+        ats_result = call_llm(prompt, session=st.session_state).strip()
+    except RuntimeError as e:
+        raise RuntimeError(f"⚠️ API keys exhausted during ATS evaluation. Try again later or add your Groq key in Settings.\n{e}")
 
     # ── CRITICAL: Overwrite any LLM-modified Format Score/Grade lines ────
     # The LLM sometimes rewrites these despite instructions. Force the true
@@ -6412,6 +6425,11 @@ if uploaded_files and job_description:
                 highlighted_text, rewritten_text, _, _, _, _, json_str = rewrite_and_highlight(
                     full_text, replacement_mapping, user_location
                 )
+            except RuntimeError as e:
+                scanner_placeholder.empty()
+                st.error(str(e))
+                st.info("💡 Tip: Add your own Groq API key in the Settings panel to avoid shared key limits.")
+                st.stop()
             except Exception:
                 highlighted_text = full_text
                 rewritten_text   = full_text
@@ -6434,17 +6452,23 @@ if uploaded_files and job_description:
 
         # ✅ LLM-based ATS Evaluation (includes domain detection + grammar scoring internally)
         with st.spinner("🔍 Running ATS evaluation..."):
-            ats_result, ats_scores = ats_percentage_score(
-                resume_text=full_text,
-                job_description=job_description,
-                logic_profile_score=None,
-                edu_weight=edu_weight,
-                exp_weight=exp_weight,
-                skills_weight=skills_weight,
-                lang_weight=lang_weight,
-                keyword_weight=keyword_weight,
-                format_data=format_data,
-            )
+            try:
+                ats_result, ats_scores = ats_percentage_score(
+                    resume_text=full_text,
+                    job_description=job_description,
+                    logic_profile_score=None,
+                    edu_weight=edu_weight,
+                    exp_weight=exp_weight,
+                    skills_weight=skills_weight,
+                    lang_weight=lang_weight,
+                    keyword_weight=keyword_weight,
+                    format_data=format_data,
+                )
+            except RuntimeError as e:
+                scanner_placeholder.empty()
+                st.error(str(e))
+                st.info("💡 Tip: Add your own Groq API key in the Settings panel to avoid shared key limits.")
+                st.stop()
 
         # ✅ Extract structured ATS values
         candidate_name = ats_scores.get("Candidate Name", "Not Found")
