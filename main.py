@@ -87,11 +87,7 @@ from user_login import (
     get_user_by_email,
     update_password_by_email,
     is_strong_password,
-    domain_has_mx_record,
-    create_login_token,
-    verify_login_token,
-    send_login_confirmation_email,
-    get_email_by_username,
+    domain_has_mx_record
 )
 
 # ============================================================
@@ -251,9 +247,6 @@ LENGTH: 3 short-to-medium paragraphs. Maximum 350 words.
         with st.spinner("✉️ Generating cover letter..."):
             try:
                 cover_letter = call_llm(prompt, session=st.session_state).strip()
-            except RuntimeError as e:
-                st.error(f"⚠️ API keys exhausted — please try again later or add your own Groq key in Settings. ({e})")
-                return
             except Exception as e:
                 st.error(f"❌ Failed to generate cover letter: {e}")
                 return
@@ -290,30 +283,6 @@ LENGTH: 3 short-to-medium paragraphs. Maximum 350 words.
 # ------------------- Initialize -------------------
 # ✅ Initialize database in persistent storage
 create_user_table()
-
-# ------------------- Login Token Handler -------------------
-# Runs on every page load. If the URL carries ?login_token=<token>,
-# validate it and complete the login — this is the "Yes, it's me" click.
-_login_token = st.query_params.get("login_token", None)
-if _login_token and not st.session_state.get("authenticated", False):
-    _username, _groq_key = verify_login_token(_login_token)
-    if _username:
-        st.session_state.authenticated = True
-        st.session_state.username = _username
-        st.session_state.user_groq_key = _groq_key or ""
-        st.session_state.login_stage = "credentials"
-        st.session_state.pending_login_username = None
-        log_user_action(_username, "login")
-        # Remove the token from the URL so a refresh doesn't re-submit it
-        st.query_params.clear()
-        st.rerun()
-    else:
-        # Token invalid, expired, or already used — show a one-time error
-        if "token_error_shown" not in st.session_state:
-            st.session_state.token_error_shown = True
-            st.query_params.clear()
-            notify("login", "error", "❌ This login link is invalid or has expired. Please sign in again.")
-            st.rerun()
 
 # ------------------- Tab-Specific Notification System -------------------
 if "login_notification" not in st.session_state:
@@ -454,14 +423,6 @@ if "username" not in st.session_state:
     st.session_state.username = None
 if "processed_files" not in st.session_state:
     st.session_state.processed_files = set()
-
-# Login confirmation flow states
-if "login_stage" not in st.session_state:
-    # "credentials"  → normal sign-in form
-    # "awaiting_email" → credentials verified, confirmation email sent, waiting
-    st.session_state.login_stage = "credentials"
-if "pending_login_username" not in st.session_state:
-    st.session_state.pending_login_username = None
 
 # Forgot password session states
 if "reset_stage" not in st.session_state:
@@ -1827,102 +1788,37 @@ if not st.session_state.get("authenticated", False):
         with login_tab:
             # Show login or forgot password flow based on reset_stage
             if st.session_state.reset_stage == "none":
+                # Normal Login UI
+                st.markdown("""<h3 style='color:#9aa4af; text-align:center; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif; font-size:0.82rem; font-weight:500; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:24px;'>Welcome Back</h3>""", unsafe_allow_html=True)
 
-                # ── Stage A: Credentials entry ──────────────────────────────
-                if st.session_state.login_stage == "credentials":
-                    st.markdown("""<h3 style='color:#9aa4af; text-align:center; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif; font-size:0.82rem; font-weight:500; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:24px;'>Welcome Back</h3>""", unsafe_allow_html=True)
+                user = st.text_input("Username or Email", key="login_user")
+                pwd = st.text_input("Password", type="password", key="login_pass")
 
-                    user = st.text_input("Username or Email", key="login_user")
-                    pwd = st.text_input("Password", type="password", key="login_pass")
+                # Render notification area (reserves space)
+                render_notification("login")
 
-                    # Render notification area (reserves space)
-                    render_notification("login")
+                if st.button("Sign In", key="login_btn", use_container_width=True):
+                    success, saved_key = verify_user(user.strip(), pwd.strip())
+                    if success:
+                        st.session_state.authenticated = True
+                        # username is already set in session by verify_user()
+                        if saved_key:
+                            st.session_state["user_groq_key"] = saved_key
+                        log_user_action(st.session_state.username, "login")
 
-                    if st.button("Sign In", key="login_btn", use_container_width=True):
-                        success, _ = verify_user(user.strip(), pwd.strip())
-                        if success:
-                            # Credentials OK — look up email and send confirmation link
-                            _uname = st.session_state.username   # set by verify_user()
-                            _email = get_email_by_username(_uname)
-                            if _email:
-                                _token = create_login_token(_uname)
-                                sent = send_login_confirmation_email(_email, _uname, _token)
-                                if sent:
-                                    # Move to waiting stage; clear the partial auth set by verify_user
-                                    st.session_state.authenticated = False
-                                    st.session_state.pending_login_username = _uname
-                                    st.session_state.login_stage = "awaiting_email"
-                                    st.rerun()
-                                else:
-                                    st.session_state.authenticated = False
-                                    notify("login", "error", "❌ Could not send confirmation email. Please try again.")
-                                    st.rerun()
-                            else:
-                                # Account has no email on record — cannot send link
-                                st.session_state.authenticated = False
-                                notify("login", "error", "❌ No email address is associated with this account. Please contact support.")
-                                st.rerun()
-                        else:
-                            st.session_state.authenticated = False
-                            notify("login", "error", "❌ Invalid credentials. Please try again.")
-                            st.rerun()
-
-                    st.markdown("<br>", unsafe_allow_html=True)
-
-                    # Forgot Password Link
-                    if st.button("Forgot Password?", key="forgot_pw_link"):
-                        st.session_state.reset_stage = "request_email"
+                        notify("login", "success", "✅ Login successful!")
+                        time.sleep(3.0)
+                        st.rerun()
+                    else:
+                        notify("login", "error", "❌ Invalid credentials. Please try again.")
                         st.rerun()
 
-                # ── Stage B: Waiting for email confirmation ─────────────────
-                elif st.session_state.login_stage == "awaiting_email":
-                    _pending = st.session_state.pending_login_username or "you"
-                    _masked_email = ""
-                    _raw_email = get_email_by_username(_pending) if _pending != "you" else None
-                    if _raw_email:
-                        _parts = _raw_email.split("@")
-                        _masked_email = _parts[0][:2] + "***@" + _parts[1]
+                st.markdown("<br>", unsafe_allow_html=True)
 
-                    st.markdown(f"""
-                    <div style="
-                        text-align:center;
-                        padding: 28px 16px 20px;
-                        font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,sans-serif;
-                    ">
-                        <div style="font-size:2.6rem; margin-bottom:12px;">📧</div>
-                        <div style="font-size:1.05rem; font-weight:600; color:#e6edf3; margin-bottom:8px;">
-                            Check your email
-                        </div>
-                        <div style="font-size:0.85rem; color:#8b9ab0; line-height:1.6;">
-                            We sent a confirmation link to<br>
-                            <strong style="color:#c9d1d9;">{_masked_email}</strong><br><br>
-                            Click <em>"Yes, it's me"</em> in the email to complete your sign-in.<br>
-                            The link expires in <strong style="color:#fbbf24;">10 minutes</strong>.
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    render_notification("login")
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("🔄 Resend link", key="resend_confirm_btn", use_container_width=True):
-                            _uname = st.session_state.pending_login_username
-                            _email = get_email_by_username(_uname)
-                            if _email:
-                                _token = create_login_token(_uname)
-                                sent = send_login_confirmation_email(_email, _uname, _token)
-                                if sent:
-                                    notify("login", "success", "📨 New confirmation link sent!")
-                                else:
-                                    notify("login", "error", "❌ Failed to resend. Please try again.")
-                            st.rerun()
-                    with col2:
-                        if st.button("↩️ Back", key="back_from_confirm_btn", use_container_width=True):
-                            st.session_state.login_stage = "credentials"
-                            st.session_state.pending_login_username = None
-                            st.session_state.authenticated = False
-                            st.rerun()
+                # Forgot Password Link
+                if st.button("Forgot Password?", key="forgot_pw_link"):
+                    st.session_state.reset_stage = "request_email"
+                    st.rerun()
 
             # ============================================================
             # FORGOT PASSWORD FLOW - Stage 1: Request Email
@@ -3696,10 +3592,11 @@ Work Experience → Projects → Education → Certifications & Links
 
 CONTACT HEADER: Full Name | Job Title | Email | Phone | Location | LinkedIn URL | GitHub/Portfolio URL
 
-PROFESSIONAL SUMMARY (2–3 sentences, max 60 words):
+PROFESSIONAL SUMMARY (3–4 sentences, max 100 words):
   Sentence 1: [Seniority level] + [core domain] + [years of experience]
   Sentence 2: [Top 2–3 specific technical or functional strengths]
-  Sentence 3: [Career value proposition — what the candidate delivers]
+  Sentence 3: [Notable tools, frameworks, or methodologies used]
+  Sentence 4: [Career value proposition — what the candidate delivers]
 
 CORE SKILLS: labeled lines — Technical Skills: [...] and Professional Skills: [...]
 
@@ -3717,7 +3614,14 @@ PROJECTS: Name | Tech Stack | Duration
   • [Achievement bullet with action verb and metric]
   (3–5 bullets)
 
-EDUCATION: Degree, Major | Institution | Graduation Year
+EDUCATION: Degree, Major | Institution | Graduation Year | CGPA (if mentioned)
+  • Capture ALL details written under each education entry as bullets, including:
+    - Relevant coursework (e.g., "Relevant Coursework: Data Structures, ML, DBMS")
+    - Academic honors, awards, distinctions (e.g., "Dean's List", "Top 5% of batch")
+    - Thesis or final year project title
+    - Extracurricular academic activities (e.g., IEEE member, coding club)
+    - Any other detail the candidate wrote under their education entry
+  DO NOT drop or ignore any sub-detail written under an education entry.
 CERTIFICATIONS: • Name | Issuing Body | MMM YYYY
 
 ATS FORMATTING:
@@ -3787,6 +3691,7 @@ RETURN ONLY THIS EXACT JSON STRUCTURE:
       "degree": "",
       "institution": "",
       "year": "",
+      "cgpa": "",
       "bullets": []
     }}
   ],
@@ -3810,7 +3715,9 @@ FIELD RULES:
 - "skills" = flat array of individual skill strings. Minimum 8. No duplicates.
 - "soft_skills" = professional competency phrases. Must NOT duplicate items in "skills".
 - "contact.*" = extract exactly as written. Use "" not null for missing fields.
-- "summary" = 2–3 sentences, max 60 words, no pronouns.
+- "summary" = 3–4 sentences, max 100 words, no pronouns. NEVER truncate mid-sentence.
+- "education[].cgpa" = CGPA or GPA value as a string (e.g., "8.5/10", "3.8/4.0"). Use "" if not mentioned.
+- "education[].bullets" = ALL sub-details written under that education entry: coursework, honors, awards, thesis, clubs, achievements. Capture every line — do NOT leave this array empty if the candidate wrote anything under their education.
 - "experience[].description" = 1-sentence role scope, unique from bullets.
 - "experience[].bullets" = 3–5 bullets each. Strong verb + task + tech + impact.
 - "projects[].bullets" = must NOT restate experience bullets.
@@ -3821,10 +3728,7 @@ RESUME TEXT:
 \"\"\"{text}\"\"\"
 """
 
-    try:
-        raw_response = call_llm(prompt, session=st.session_state)
-    except RuntimeError as e:
-        raise RuntimeError(f"⚠️ API keys exhausted during resume rewrite. Try again later or add your Groq key in Settings.\n{e}")
+    raw_response = call_llm(prompt, session=st.session_state)
 
     # ── Parse the two sections out of the combined response ──────────────
     rewritten_text = ""
@@ -4674,10 +4578,16 @@ def generate_modern_docx(data: dict) -> BytesIO:
                 r_inst.font.color.rgb = RGBColor(74, 74, 74)
             p.paragraph_format.space_before = Pt(6)
             p.paragraph_format.space_after = Pt(0)
-            if edu.get("year") and edu["year"] not in ("", "[Not Provided]"):
+            # ── Year + optional CGPA on same line ──────────────────────────
+            _yr_str = edu.get("year", "") if edu.get("year", "") not in ("", "[Not Provided]") else ""
+            _cgpa_str = edu.get("cgpa", "") if edu.get("cgpa", "") not in ("", "[Not Provided]") else ""
+            if _yr_str or _cgpa_str:
                 p_yr = doc.add_paragraph()
                 p_yr.clear()
-                r_yr = p_yr.add_run(edu["year"])
+                yr_line = _yr_str
+                if _cgpa_str:
+                    yr_line = f"{_yr_str}  |  CGPA: {_cgpa_str}" if _yr_str else f"CGPA: {_cgpa_str}"
+                r_yr = p_yr.add_run(yr_line)
                 r_yr.italic = True
                 r_yr.font.size = Pt(BODY - 1)
                 r_yr.font.name = FONT
@@ -4964,10 +4874,16 @@ def generate_minimal_docx(data: dict) -> BytesIO:
                 r_inst.font.color.rgb = RGBColor(*DARK_GRAY)
             p.paragraph_format.space_before = Pt(6)
             p.paragraph_format.space_after = Pt(0)
-            if edu.get("year") and edu["year"] not in ("", "[Not Provided]"):
+            # ── Year + optional CGPA on same line ──────────────────────────
+            _yr_str = edu.get("year", "") if edu.get("year", "") not in ("", "[Not Provided]") else ""
+            _cgpa_str = edu.get("cgpa", "") if edu.get("cgpa", "") not in ("", "[Not Provided]") else ""
+            if _yr_str or _cgpa_str:
                 p_yr = doc.add_paragraph()
                 p_yr.clear()
-                r_yr = p_yr.add_run(edu["year"])
+                yr_line = _yr_str
+                if _cgpa_str:
+                    yr_line = f"{_yr_str}  |  CGPA: {_cgpa_str}" if _yr_str else f"CGPA: {_cgpa_str}"
+                r_yr = p_yr.add_run(yr_line)
                 r_yr.italic = True
                 r_yr.font.size = Pt(BODY - 1)
                 r_yr.font.name = FONT
@@ -5266,10 +5182,16 @@ def generate_creative_docx(data: dict) -> BytesIO:
                 r2.font.color.rgb = RGBColor(*TEAL)
             p.paragraph_format.space_before = Pt(6)
             p.paragraph_format.space_after = Pt(0)
-            if edu.get("year") and edu["year"] not in ("", "[Not Provided]"):
+            # ── Year + optional CGPA on same line ──────────────────────────
+            _yr_str = edu.get("year", "") if edu.get("year", "") not in ("", "[Not Provided]") else ""
+            _cgpa_str = edu.get("cgpa", "") if edu.get("cgpa", "") not in ("", "[Not Provided]") else ""
+            if _yr_str or _cgpa_str:
                 p_yr = doc.add_paragraph()
                 p_yr.clear()
-                r3 = p_yr.add_run(edu["year"])
+                yr_line = _yr_str
+                if _cgpa_str:
+                    yr_line = f"{_yr_str}  |  CGPA: {_cgpa_str}" if _yr_str else f"CGPA: {_cgpa_str}"
+                r3 = p_yr.add_run(yr_line)
                 r3.italic = True
                 r3.font.size = Pt(BODY - 1)
                 r3.font.name = FONT_BODY
@@ -5477,11 +5399,7 @@ Suggestions:
 ---
 """
 
-    try:
-        response = call_llm(grammar_prompt, session=st.session_state).strip()
-    except RuntimeError:
-        # Keys exhausted — return a safe default so analysis can continue
-        return max(0, min(max_score, max_score - 2)), "Language quality could not be evaluated (API unavailable).", []
+    response = call_llm(grammar_prompt, session=st.session_state).strip()
     score_match = re.search(r"Score:\s*(\d+)", response)
     feedback_match = re.search(r"Feedback:\s*(.+)", response)
     suggestions = re.findall(r"- (.+)", response)
@@ -5804,10 +5722,7 @@ SCORING SCALE for language ({lang_weight} pts max):
 """
    
    
-    try:
-        ats_result = call_llm(prompt, session=st.session_state).strip()
-    except RuntimeError as e:
-        raise RuntimeError(f"⚠️ API keys exhausted during ATS evaluation. Try again later or add your Groq key in Settings.\n{e}")
+    ats_result = call_llm(prompt, session=st.session_state).strip()
 
     # ── CRITICAL: Overwrite any LLM-modified Format Score/Grade lines ────
     # The LLM sometimes rewrites these despite instructions. Force the true
@@ -6425,11 +6340,6 @@ if uploaded_files and job_description:
                 highlighted_text, rewritten_text, _, _, _, _, json_str = rewrite_and_highlight(
                     full_text, replacement_mapping, user_location
                 )
-            except RuntimeError as e:
-                scanner_placeholder.empty()
-                st.error(str(e))
-                st.info("💡 Tip: Add your own Groq API key in the Settings panel to avoid shared key limits.")
-                st.stop()
             except Exception:
                 highlighted_text = full_text
                 rewritten_text   = full_text
@@ -6452,23 +6362,17 @@ if uploaded_files and job_description:
 
         # ✅ LLM-based ATS Evaluation (includes domain detection + grammar scoring internally)
         with st.spinner("🔍 Running ATS evaluation..."):
-            try:
-                ats_result, ats_scores = ats_percentage_score(
-                    resume_text=full_text,
-                    job_description=job_description,
-                    logic_profile_score=None,
-                    edu_weight=edu_weight,
-                    exp_weight=exp_weight,
-                    skills_weight=skills_weight,
-                    lang_weight=lang_weight,
-                    keyword_weight=keyword_weight,
-                    format_data=format_data,
-                )
-            except RuntimeError as e:
-                scanner_placeholder.empty()
-                st.error(str(e))
-                st.info("💡 Tip: Add your own Groq API key in the Settings panel to avoid shared key limits.")
-                st.stop()
+            ats_result, ats_scores = ats_percentage_score(
+                resume_text=full_text,
+                job_description=job_description,
+                logic_profile_score=None,
+                edu_weight=edu_weight,
+                exp_weight=exp_weight,
+                skills_weight=skills_weight,
+                lang_weight=lang_weight,
+                keyword_weight=keyword_weight,
+                format_data=format_data,
+            )
 
         # ✅ Extract structured ATS values
         candidate_name = ats_scores.get("Candidate Name", "Not Found")
