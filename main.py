@@ -7376,7 +7376,7 @@ with tab1:
                     )
 
     else:           
-        st.warning("⚠️ Please upload resumes to view dashboard analytics.")s
+        st.warning("⚠️ Please upload resumes to view dashboard analytics.")
 from xhtml2pdf import pisa
 from io import BytesIO
 
