@@ -17081,7 +17081,7 @@ Generate now:
 # RESUME SCANNING ANIMATION
 # ======================================================
 def show_resume_scanning_animation():
-    """Animated resume scanning UI"""
+    """Animated resume scanning UI — lightweight, minimal sleep to avoid blink"""
 
     status = st.empty()
     progress = st.empty()
@@ -17100,7 +17100,7 @@ def show_resume_scanning_animation():
             unsafe_allow_html=True
         )
         progress.progress(value)
-        time.sleep(0.6)
+        time.sleep(0.2)  # reduced from 0.6 — shorter sleep = less perceived blink
 
     status.empty()
     progress.empty()
@@ -17362,15 +17362,11 @@ with tab4:
         /* ── Animations ── */
         @keyframes t4-fadeSlideUp  { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
         @keyframes t4-shimmer      { 0% { transform:translateX(-100%) skewX(-12deg); } 100% { transform:translateX(220%) skewX(-12deg); } }
-        @keyframes t4-pulseGlow    { 0%,100% { box-shadow: var(--t4-shadow-card); } 50% { box-shadow: var(--t4-shadow-card), var(--t4-shadow-glow); } }
-        @keyframes t4-gradientFlow { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
-        @keyframes t4-subtlePulse  { 0%,100% { opacity:1; } 50% { opacity:0.82; } }
+        @keyframes t4-subtlePulse  { 0%,100% { opacity:1; } 50% { opacity:0.75; } }
 
         /* ── Header Box ── */
         .header-box {
             background: linear-gradient(160deg, rgba(14,20,32,0.97) 0%, rgba(8,12,18,0.99) 100%);
-            backdrop-filter: blur(32px) saturate(160%);
-            -webkit-backdrop-filter: blur(32px) saturate(160%);
             border: 1px solid rgba(99,179,237,0.20);
             border-radius: var(--t4-radius-xl);
             padding: 32px 28px;
@@ -17379,7 +17375,6 @@ with tab4:
             box-shadow: var(--t4-shadow-card), 0 0 60px rgba(79,163,227,0.07);
             position: relative;
             overflow: hidden;
-            animation: t4-fadeSlideUp 0.65s cubic-bezier(0.22,1,0.36,1) forwards;
         }
         .header-box::after {
             content: '';
@@ -17387,7 +17382,7 @@ with tab4:
             top: 0; left: -100%;
             width: 60%; height: 100%;
             background: linear-gradient(90deg, transparent, rgba(79,163,227,0.06), transparent);
-            animation: t4-shimmer 3.5s ease-in-out infinite;
+            /* shimmer removed — fired on every Streamlit rerun causing blink */
         }
         .header-box h2 {
             font-family: var(--t4-font) !important;
@@ -17408,7 +17403,7 @@ with tab4:
             font-weight: 600;
             letter-spacing: -0.02em;
             margin: 20px 0 12px 0;
-            animation: t4-subtlePulse 3.5s ease-in-out infinite;
+            /* subtlePulse removed — infinite animation on a static label causes composite layer churn */
         }
 
         /* ── Learning Path Container ── */
@@ -17417,8 +17412,6 @@ with tab4:
             margin: 24px 0 18px 0;
             padding: 14px 20px;
             background: var(--t4-surface-01);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
             border-radius: var(--t4-radius-md);
             border: 1px solid var(--t4-border-subtle);
             transition: border-color var(--t4-ease-base);
@@ -17438,8 +17431,8 @@ with tab4:
         /* ── Card ── */
         .card {
             background: var(--t4-surface-01);
-            backdrop-filter: blur(24px) saturate(180%);
-            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             border: 1px solid var(--t4-border-subtle);
             border-radius: var(--t4-radius-lg);
             padding: 20px 24px;
@@ -17448,7 +17441,7 @@ with tab4:
             overflow: hidden;
             transition: transform var(--t4-ease-base), box-shadow var(--t4-ease-base), border-color var(--t4-ease-base);
             box-shadow: var(--t4-shadow-card);
-            animation: t4-fadeSlideUp 0.5s ease forwards;
+            /* fadeSlideUp removed — re-fires on every Streamlit rerun, the leading cause of blink */
         }
         .card::before {
             content: '';
@@ -17492,8 +17485,8 @@ with tab4:
         /* ── Course Tile ── */
         .course-tile {
             background: var(--t4-surface-01);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             border: 1px solid var(--t4-border-subtle);
             border-radius: var(--t4-radius-lg);
             padding: 20px;
@@ -17566,14 +17559,14 @@ with tab4:
         /* ── Quiz Card ── */
         .quiz-card {
             background: var(--t4-surface-01);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             border: 1px solid var(--t4-border-subtle);
             border-radius: var(--t4-radius-lg);
             padding: 20px;
             margin: 14px 0;
             box-shadow: var(--t4-shadow-card);
-            transition: all var(--t4-ease-base);
+            transition: border-color var(--t4-ease-base);
         }
         .quiz-card:hover {
             border-color: var(--t4-border-accent);
@@ -17584,13 +17577,13 @@ with tab4:
             text-align: center;
             padding: 28px;
             background: var(--t4-surface-01);
-            backdrop-filter: blur(24px) saturate(180%);
-            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             border-radius: var(--t4-radius-lg);
             border: 1px solid var(--t4-border-subtle);
             margin: 18px 0;
             box-shadow: var(--t4-shadow-card);
-            animation: t4-fadeSlideUp 0.5s ease forwards;
+            /* fadeSlideUp removed — re-fires on every rerun */
         }
 
         /* ── Score Display ── */
@@ -17610,7 +17603,6 @@ with tab4:
             border-radius: var(--t4-radius-md);
             padding: 18px;
             margin: 12px 0;
-            backdrop-filter: blur(16px);
             transition: border-color var(--t4-ease-fast);
         }
         .role-selector:hover { border-color: var(--t4-border-accent); }
@@ -17622,7 +17614,6 @@ with tab4:
             border-radius: var(--t4-radius-lg);
             padding: 20px;
             margin: 18px 0;
-            backdrop-filter: blur(16px);
         }
 
         /* ── Timer ── */
@@ -17633,7 +17624,6 @@ with tab4:
             padding: 14px;
             margin: 14px 0;
             text-align: center;
-            backdrop-filter: blur(16px);
         }
         .timer-display {
             font-family: var(--t4-font);
@@ -17645,6 +17635,7 @@ with tab4:
         .timer-urgent {
             color: var(--t4-accent-rose);
             animation: t4-subtlePulse 1s ease-in-out infinite;
+            will-change: opacity;
         }
 
         /* ── Selectbox ── */
@@ -17675,7 +17666,6 @@ with tab4:
             background: var(--t4-surface-01) !important;
             border: 1px solid var(--t4-border-subtle) !important;
             border-radius: var(--t4-radius-md) !important;
-            backdrop-filter: blur(16px) !important;
             font-family: var(--t4-font) !important;
             font-size: 0.875rem !important;
         }
@@ -19161,16 +19151,14 @@ Generate {num_questions} questions now:
                 num_resume_qs = len(st.session_state.resume_based_questions)
                 current_phase = "Resume-Based" if current_index <= num_resume_qs else "Generic Interview"
 
-                # Display progress with correct counts in glassmorphism box
+                # Display progress with correct counts
                 st.markdown(f"""
                 <div style="background: linear-gradient(135deg, rgba(0, 195, 255, 0.08) 0%, rgba(0, 195, 255, 0.04) 100%);
-                            backdrop-filter: blur(10px);
-                            -webkit-backdrop-filter: blur(10px);
                             border: 1px solid rgba(0, 195, 255, 0.2);
                             border-radius: 12px;
                             padding: 16px 24px;
                             margin: 20px 0;
-                            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05);">
+                            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
                     <p style="color: #ffffff; font-size: 16px; margin: 0; font-weight: 500;">
                         📊 Progress: Answered {questions_answered}/{st.session_state.original_num_questions} questions | Phase: {current_phase}
                     </p>
@@ -19188,31 +19176,22 @@ Generate {num_questions} questions now:
                     elapsed_time = time.time() - st.session_state.question_timer_start
                     remaining_time = max(0, st.session_state.timer_seconds - elapsed_time)
 
-                    # Display timer using st.fragment so ONLY the clock reruns every second
-                    # — the rest of the page (question text, textarea, buttons) stays stable.
-                    @st.fragment(run_every=1)
-                    def _timer_widget():
-                        _elapsed = time.time() - st.session_state.question_timer_start
-                        _remaining = max(0, st.session_state.timer_seconds - _elapsed)
-                        _mins = int(_remaining // 60)
-                        _secs = int(_remaining % 60)
-                        _urgent = "timer-urgent" if _remaining <= 30 else ""
-                        st.markdown(f"""
-                        <div class="timer-container">
-                            <div class="timer-display {_urgent}">
-                                ⏰ Time Remaining: {_mins:02d}:{_secs:02d}
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        _progress = (_elapsed) / st.session_state.timer_seconds
-                        st.progress(min(_progress, 1.0))
-                        # When timer expires or answer submitted: trigger a FULL app rerun
-                        # scope="app" is required — plain st.rerun() inside a fragment
-                        # only reruns the fragment itself, so auto-submit never fires.
-                        if _remaining <= 0 or st.session_state.get('dynamic_answer_submitted'):
-                            st.rerun(scope="app")
+                    # Display timer
+                    timer_minutes = int(remaining_time // 60)
+                    timer_seconds_display = int(remaining_time % 60)
+                    timer_urgent_class = "timer-urgent" if remaining_time <= 30 else ""
 
-                    _timer_widget()
+                    st.markdown(f"""
+                    <div class="timer-container">
+                        <div class="timer-display {timer_urgent_class}">
+                            ⏰ Time Remaining: {timer_minutes:02d}:{timer_seconds_display:02d}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # Timer progress bar
+                    progress_value = (st.session_state.timer_seconds - remaining_time) / st.session_state.timer_seconds
+                    st.progress(progress_value)
 
                     # Question display with phase indicator
                     phase_badge = "📄 Resume-Based Question" if current_index <= num_resume_qs else "💼 Generic Interview Question"
@@ -19491,8 +19470,14 @@ Generate {num_questions} questions now:
                                     if i < num_to_show - 1:  # Don't add separator after last item
                                         st.markdown("---")
 
-                    # Timer auto-refresh is now handled inside _timer_widget (st.fragment above).
-                    # No sleep/rerun needed here — removing it eliminates the full-page blink.
+                    # Auto-refresh for timer — use streamlit-autorefresh to avoid full-page blink
+                    if remaining_time > 0 and not st.session_state.dynamic_answer_submitted:
+                        try:
+                            from streamlit_autorefresh import st_autorefresh
+                            st_autorefresh(interval=1000, limit=None, key="timer_autorefresh")
+                        except ImportError:
+                            # Fallback: rerun without sleep to reduce blink duration
+                            st.rerun()
                 else:
                     # CRITICAL FIX: All questions answered, move to completion automatically
                     # Capture exact duration at auto-completion moment
@@ -19766,8 +19751,8 @@ Generate {num_questions} questions now:
         /* Metric cards */
         .metric-card {
             background: rgba(255,255,255,0.04);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             border: 1px solid rgba(255,255,255,0.07);
             border-radius: 14px;
             padding: 18px 20px;
