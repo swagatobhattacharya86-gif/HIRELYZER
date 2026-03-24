@@ -59,7 +59,7 @@ from langchain_groq import ChatGroq  # optional if you're using it
 
 
 # Local project imports
-from llm_manager import call_llm, load_groq_api_keys, get_healthy_keys, pick_healthy_key, increment_key_usage, mark_key_failure
+from llm_manager import call_llm, load_groq_api_keys, get_healthy_keys, increment_key_usage, mark_key_failure
 from db_manager import (
     db_manager,
     insert_candidate,
@@ -6035,10 +6035,15 @@ def setup_vectorstore(documents):
 
 # Create Conversational Chain
 def create_chain(vectorstore):
-    # Use pick_healthy_key() — already shuffled and filtered by llm_manager.
-    # Do NOT call increment_key_usage() here; usage is counted only after a
-    # successful API call below, preventing double-counting with call_llm().
-    groq_api_key = pick_healthy_key()
+    # ✅ Use get_healthy_keys() so dead/quota keys are skipped (reads key_failures
+    #    and key_usage from Supabase — same tables that call_llm() maintains).
+    all_keys    = load_groq_api_keys()
+    healthy     = get_healthy_keys(all_keys)
+    if not healthy:
+        raise ValueError("❌ No healthy Groq API keys available for chat chain.")
+    # healthy list is already shuffled by get_healthy_keys — just take the first
+    groq_api_key = healthy[0]
+    increment_key_usage(groq_api_key)   # keep usage count in sync with call_llm
 
     # ✅ Create the ChatGroq object
     llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0, groq_api_key=groq_api_key)
@@ -6050,17 +6055,9 @@ def create_chain(vectorstore):
             retriever=vectorstore.as_retriever(),
             return_source_documents=True
         )
-        # Only increment after confirmed success — avoids pre-emptive quota burn
-        increment_key_usage(groq_api_key)
         return chain
     except Exception as e:
-        err = str(e).lower()
-        if any(p in err for p in ["daily limit", "tokens per day", "daily token", "exceeded your", "quota exceeded"]):
-            reason = "quota"
-        elif any(p in err for p in ["rate limit", "429", "too many requests", "tokens per minute", "requests per minute"]):
-            reason = "rate_limit"
-        else:
-            reason = "error"
+        reason = "quota" if any(w in str(e).lower() for w in ["quota", "rate limit", "429"]) else "error"
         mark_key_failure(groq_api_key, reason)
         raise
 
@@ -7379,7 +7376,7 @@ with tab1:
                     )
 
     else:           
-        st.warning("⚠️ Please upload resumes to view dashboard analytics.")
+        st.warning("⚠️ Please upload resumes to view dashboard analytics.")s
 from xhtml2pdf import pisa
 from io import BytesIO
 
